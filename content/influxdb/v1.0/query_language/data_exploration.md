@@ -296,18 +296,51 @@ It supports using regular expressions to match tags, but not to match fields.
 <br>
 # The GROUP BY clause
 
-Use the `GROUP BY` clause to group data by tags and/or time intervals.
-To successfully implement `GROUP BY`,  append the`GROUP BY` clause to a `SELECT` statement and pair the `SELECT` statement with one of InfluxQL's [functions](/influxdb/v1.0/query_language/functions/):
+`GROUP BY` queries group query results by a user-specified tag or time interval.
 
-> **Note:** If your query includes both a `WHERE` clause and a `GROUP BY` clause, the `GROUP BY` clause must come after the `WHERE` clause.
+<table style="width:100%">
+  <tr>
+    <td><b>GROUP BY tags:</b></td>
+    <td><b>GROUP BY time intervals:</b></td>
+  </tr>
+  <tr>
+    <td><a href="#group-by-tags">GROUP BY tags</a></td>
+    <td><a href="#basic-syntax">Basic Syntax</a></td>
+  </tr>
+  <tr>
+    <td></td>
+    <td><a href="#advanced-syntax">Advanced Syntax</a></td>
 
-## GROUP BY tag values
-Calculate the [`MEAN()`](/influxdb/v1.0/query_language/functions/#mean) `water_level` for the different tag values of `location`:
-```sql
-> SELECT MEAN("water_level") FROM "h2o_feet" GROUP BY "location"
+  </tr>
+  <tr>
+    <td></td>
+    <td><a href="#group-by-time-intervals-and-fill">GROUP BY time intervals and fill()</a></td>
+  </tr>
+</table>
+
+## GROUP BY tags
+
+`GROUP BY <tag>` queries group query results by a user-specified tag.
+
+#### Syntax
+
 ```
-CLI response:
-```bash
+SELECT <function>(<field_key>) FROM <measurement_name> [WHERE <time_range>] GROUP BY [ * | <tag_key>[,<tag_key] ] [fill(<>)]
+```
+
+#### Description of Basic Syntax
+
+`GROUP BY <tag>` queries require and InfluxQL [function](/influxdb/v1.0/query_language/functions/).
+If the query includes a `WHERE` clause the `GROUP BY` clause must come after the `WHERE` clause.
+
+#### Examples
+
+##### Example 1: Group query results by a single tag
+<br>
+Calculate the [`MEAN()`](/influxdb/v1.0/query_language/functions/#mean) `water_level` for the different tag values of `location`:
+```
+> SELECT MEAN("water_level") FROM "h2o_feet" GROUP BY "location"
+
 name: h2o_feet
 tags: location=coyote_creek
 time			               mean
@@ -324,12 +357,12 @@ time			               mean
 >**Note:** In InfluxDB, [epoch 0](https://en.wikipedia.org/wiki/Unix_time) (`1970-01-01T00:00:00Z`) is often used as a null timestamp equivalent.
 If you request a query that has no timestamp to return, such as an aggregation function with an unbounded time range, InfluxDB returns epoch 0 as the timestamp.
 
+##### Example 2: Group query results by all tags
+<br>
 Calculate the [`MEAN()`](/influxdb/v1.0/query_language/functions/#mean) `index` for every tag set in `h2o_quality`:
-```sql
-> SELECT MEAN("index") FROM "h2o_quality" GROUP BY *
 ```
-CLI response:
-```bash
+> SELECT MEAN("index") FROM "h2o_quality" GROUP BY *
+
 name: h2o_quality
 tags: location=coyote_creek, randtag=1
 time			               mean
@@ -374,204 +407,715 @@ time			               mean
 
 ## GROUP BY time intervals
 
-Users can group data by a given time interval with `GROUP BY time()`:
-```sql
-SELECT <function>(<field_key>) FROM <measurement_name> WHERE <time_range> GROUP BY time(<time_interval>[,<offset_interval>])
+`GROUP BY time()` queries group query results by a user-specified time interval.
+
+### Basic Syntax
+
+#### Syntax
+```
+SELECT <function>(<field_key>)
+FROM <measurement_name>
+WHERE <time_range>
+GROUP BY time(<time_interval>),[tag_key] [fill(<fill_option>)]
 ```
 
-InfluxQL requires a `WHERE` clause if you're using `GROUP BY` with `time()`.
-Note that unless you specify a different upper and lower bound for the time range, `GROUP BY` uses `epoch 0` as the lower bound and `now()` as the upper bound for the query.
+#### Description of Basic Syntax
 
-Valid units for `time()` are:  
+Basic `GROUP BY time()` queries require an InfluxQL [function](/influxdb/v1.0/query_language/functions/)
+and a time range in the `WHERE` clause.
+Note that the `GROUP BY` clause must come after the `WHERE` clause.
+
+The `time_interval` in the `GROUP BY time()` clause is a [duration literal](/influxdb/v1.0/query_language/spec/#durations).
+It determines how InfluxDB groups query results over time.
+For example, a `time_interval` of `5m` groups query results into five-minute
+time buckets across the time range specified in the `WHERE` clause.
+
+The `fill(<fill_option>)` is optional.
+It changes the value reported for time intervals that have no data.
+See [GROUP BY time intervals and `fill()`](#group-by-time-intervals-and-fill)
+for additional information.
+
+**Coverage:**
+
+Basic `GROUP BY time()` queries rely on the `time_interval` and on InfluxDB's
+preset time boundaries to determine the raw data included in each time interval
+and the timestamps returned by the query.
+
+#### Examples of Basic Syntax
+
+The examples below use the following subsample of the sample data:
+```
+> SELECT "water_level" FROM "h2o_feet" WHERE time >= '2015-08-18T00:00:00Z' AND time <= '2015-08-18T00:30:00Z'
+--------------
+time                   water_level   location
+2015-08-18T00:00:00Z   8.12          coyote_creek
+2015-08-18T00:00:00Z   2.064         santa_monica
+2015-08-18T00:06:00Z   8.005         coyote_creek
+2015-08-18T00:06:00Z   2.116         santa_monica
+2015-08-18T00:12:00Z   7.887         coyote_creek
+2015-08-18T00:12:00Z   2.028         santa_monica
+2015-08-18T00:18:00Z   7.762         coyote_creek
+2015-08-18T00:18:00Z   2.126         santa_monica
+2015-08-18T00:24:00Z   7.635         coyote_creek
+2015-08-18T00:24:00Z   2.041         santa_monica
+2015-08-18T00:30:00Z   7.5           coyote_creek
+2015-08-18T00:30:00Z   2.051         santa_monica
+```
+
+##### Example 1: Group query results into 12 minute intervals
 <br>
-    `u` microseconds    
-    `ms` milliseconds  
-    `s` seconds  
-    `m` minutes  
-    `h` hours  
-    `d` days  
-    `w` weeks  
-
-### Rounded `GROUP BY time()` boundaries
-
-By default, `GROUP BY time()` returns results that fall on rounded calendar time
-boundaries.
-
-Example:
-
-[`COUNT()`](/influxdb/v1.0/query_language/functions/#count) the number of `water_level` points between August 19, 2015 at midnight and August 27 at 5:00pm at three day intervals:
-```sql
-> SELECT COUNT("water_level") FROM "h2o_feet" WHERE time >= '2015-08-19T00:00:00Z' AND time <= '2015-08-27T17:00:00Z' AND "location"='coyote_creek' GROUP BY time(3d)
+[`COUNT()`](/influxdb/v1.0/query_language/functions/#count) the number of
+`water_level` points where the `location` equals `coyote_creek` and group results into 12 minute intervals:
 ```
+> SELECT COUNT("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:00:00Z' AND time <= '2015-08-18T00:30:00Z' GROUP BY time(12m)
 
-CLI response:
-```bash
 name: h2o_feet
 --------------
-time			               count
-2015-08-18T00:00:00Z	 480
-2015-08-21T00:00:00Z	 720
-2015-08-24T00:00:00Z	 720
-2015-08-27T00:00:00Z	 171
+time                   count
+2015-08-18T00:00:00Z   2
+2015-08-18T00:12:00Z   2
+2015-08-18T00:24:00Z   2
 ```
 
-Each timestamp represents a three day interval and the value in the `count` field is the number of `water_level` points that occur in that three day interval.
-You could get the same results by querying the data four times - that is, one `COUNT()` query for every three days between August 19, 2015 at midnight and August 27, 2015 at 5:00pm - but that could take a while.
+The result for each timestamp represents a single 12 minute interval.
+The count for the first timestamp covers the raw data between `2015-08-18T00:00:00Z`
+and up to, but not including, `2015-08-18T00:12:00Z`.
+In the raw data above, the relevant field values are `8.12` and `8.005`.
+The count for the second timestamp covers the raw data between `2015-08-18T00:12:00Z`
+and up to, but not including, `2015-08-18T00:24:00Z.`
+In the raw data the relevant field values are `7.887` and `7.762`.
 
-Notice that the first timestamp in the CLI response (`2015-08-18T00:00:00Z`) occurs before the lower bound of the query's time range (`2015-08-19T00:00:00Z`).
-This is because default `GROUP BY time()` intervals fall on rounded
-calendar time boundaries.
-The `count` results where `time` is `2015-08-18T00:00:00Z`, however, only
-include data from `2015-08-19T00:00:00Z`.
-See [Frequently Asked Questions](/influxdb/v1.0/troubleshooting/frequently-asked-questions/#what-determines-the-time-intervals-returned-by-group-by-time-queries) for a more detailed explanation of the default
-`GROUP BY time()` behavior.
+##### Example 2: Group query results into 12 minutes intervals and by a tag key
+<br>
+[`COUNT()`](/influxdb/v1.0/query_language/functions/#count) the number of
+`water_level` points per `location` tag and group results into 12 minute intervals:
+```
+> SELECT COUNT("water_level") FROM "h2o_feet" WHERE time >= '2015-08-18T00:00:00Z' AND time <= '2015-08-18T00:30:00Z' GROUP BY time(12m),"location"
 
-### Configured `GROUP BY time()` boundaries
+name: h2o_feet
+tags: location=coyote_creek
+time                   count
+----                   -----
+2015-08-18T00:00:00Z   2
+2015-08-18T00:12:00Z   2
+2015-08-18T00:24:00Z   2
 
-`GROUP BY time()` also allows you to alter the default rounded calendar time
-boundaries by including an offset interval.
-
-Examples:
-
-[`COUNT()`](/influxdb/v1.0/query_language/functions/#count) the number of `water_level` points between August 19, 2015 at midnight and August 27 at 5:00pm at three day intervals, and offset
-the time boundary by one day:
-```sql
-> SELECT COUNT("water_level") FROM "h2o_feet" WHERE time >= '2015-08-19T00:00:00Z' AND time <= '2015-08-27T17:00:00Z' AND "location"='coyote_creek' GROUP BY time(3d,1d)
+name: h2o_feet
+tags: location=santa_monica
+time                   count
+----                   -----
+2015-08-18T00:00:00Z   2
+2015-08-18T00:12:00Z   2
+2015-08-18T00:24:00Z   2
 ```
 
-CLI response:
+Note that in the `GROUP BY` clause we separate `time()` and the tag key with a comma.
+
+The query returns two sets of results: one for each tag value of `location`.
+The result for each timestamp represents a single 12 minute interval.
+The count for the first timestamp covers the raw data between `2015-08-18T00:00:00Z`
+and up to, but not including, `2015-08-18T00:12:00Z`.
+In the raw data above, the relevant field values are `8.12` and `8.005` for `coyote_creek`
+and `2.064` and `2.116` for `santa_monica`.
+The count for the second timestamp covers the raw data between `2015-08-18T00:12:00Z`
+and up to, but not including, `2015-08-18T00:24:00Z.`
+In the raw data the relevant field values are `7.887` and `7.762` for `coyote_creek`
+and `2.028` and `2.126` for `santa_monica`.
+
+#### Common Issues with Basic Syntax
+
+##### Issue 1: Unexpected timestamps and values in query results
+<br>
+With the basic syntax, InfluxDB relies on the `GROUP BY time()` interval
+and on the system's preset time boundaries to determine the raw data included
+in each time interval and the timestamps returned by the query.
+In some cases, this can lead to unexpected results.
+
+**Example**
+
+Raw data:
+
+```
+> SELECT "water_level" FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:00:00Z' AND time <= '2015-08-18T00:18:00Z'
+name: h2o_feet
+--------------
+time                   water_level
+2015-08-18T00:00:00Z   8.12
+2015-08-18T00:06:00Z   8.005
+2015-08-18T00:12:00Z   7.887
+2015-08-18T00:18:00Z   7.762
+```
+
+Query and Results:
+
+The following query groups results by 12 minute intervals, and its time range
+covers a single 12 minute interval.
+
+```
+> SELECT COUNT("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time < '2015-08-18T00:18:00Z' GROUP BY time(12m)
+
+name: h2o_feet
+--------------
+time                   mean
+2015-08-18T00:00:00Z   1        <----- Note that this timestamp occurs before the start of the query's time range
+2015-08-18T00:12:00Z   1
+```
+
+Explanation:
+
+InfluxDB has preset time boundaries; when InfluxDB calculates the results for a
+single `GROUP BY time()` interval, all raw data must occur both within the
+query's time range and within the preset time boundary.
+The table below shows the boundary time range, the interval time range, the
+points included, and the returned timestamp for each `GROUP BY time()`
+interval in the results.
+
+| Time Interval Number | Boundary Time Range | Interval Time Range | Points Included | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| 1  | `time >= 2015-08-18T00:00:00Z AND time < 2015-08-18T00:12:00Z` | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:12:00Z` | `8.005` | `2015-08-18T00:00:00Z` |
+| 2  | `time >= 2015-08-12T00:12:00Z AND time < 2015-08-18T00:24:00Z` | `time >= 2015-08-12T00:12:00Z AND time < 2015-08-18T00:18:00Z`  | `7.887` | `2015-08-18T00:12:00Z` |
+
+The first preset 12-minute time boundary begins at `00:00` and ends just before
+`00:12`.
+Only one raw point (`8.005`) falls both within the query's first time interval and in that
+first time boundary.
+Note that while the returned timestamp occurs before the start of the query's time range,
+the query result excludes data that occur before the query's time range.
+
+The second preset 12-minute time boundary begins at `00:12` and ends just before
+`00:24`.
+Only one raw point (`7.887`) falls both within the query's second time interval and in that
+second time boundary.
+
+It is possible to change the default time boundary behavior.
+The [advanced `GROUP BY time()` syntax](#advanced-syntax) allows users to shift
+the start time of InfluxDB's preset time boundaries.
+[Example 3](#example-3-group-query-results-into-12-minute-intervals-and-shift-the-preset-time-boundaries-forward)
+in the Advanced Syntax section continues with the query shown in this section;
+it shifts forward the preset time boundaries by six minutes such that
+InfluxDB returns:
+
 ```
 name: h2o_feet
 --------------
-time			               count
-2015-08-19T00:00:00Z	 720
-2015-08-22T00:00:00Z	 720
-2015-08-25T00:00:00Z	 651
+time                   count
+2015-08-18T00:06:00Z   2
 ```
 
-The `1d` offset interval alters the default three day time interval boundaries  
-from:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to:
+### Advanced Syntax
+
+#### Syntax
+
 ```
-August 18 - August 20         August 19 - August 21
-August 21 - August 23         August 22 - August 24
-August 24 - August 26         August 25 - August 27
-August 27 - August 29         
+SELECT <function>(<field_key>)
+FROM <measurement_name>
+WHERE <time_range>
+GROUP BY time(<time_interval>,<offset_interval>),[tag_key] [fill(<fill_option>)]
 ```
+
+#### Description of Advanced Syntax
+
+See [Description of Basic Syntax](#description-of-basic-syntax) for details
+on general syntax and the `time_interval` in the `GROUP BY time()` clause.
+
+The `offset_interval` in the `GROUP BY time()` clause is a
+[duration literal](/influxdb/v1.0/query_language/spec/#durations).
+It shifts forward or back InfluxDB's preset time boundaries.
+The `offset_interval` can be positive or negative.
+
+The `fill(<fill_option>)` is optional.
+It changes the value reported for time intervals that have no data.
+See [GROUP BY time intervals and `fill()`](#group-by-time-intervals-and-fill)
+for additional information.
+
+**Coverage:**
+
+Advanced `GROUP BY time()` queries rely on the `time_interval`, the `offset_interval`
+, and on InfluxDB's preset time boundaries to determine the raw data included in each time interval
+and the timestamps returned by the query.
+
+#### Examples of Advanced Syntax
+
+The examples below use the following subsample of the sample data:
+
+```
+> SELECT "water_level" FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:00:00Z' AND time <= '2015-08-18T00:54:00Z'
+name: h2o_feet
+--------------
+time                   water_level
+2015-08-18T00:00:00Z   8.12
+2015-08-18T00:06:00Z   8.005
+2015-08-18T00:12:00Z   7.887
+2015-08-18T00:18:00Z   7.762
+2015-08-18T00:24:00Z   7.635
+2015-08-18T00:30:00Z   7.5
+2015-08-18T00:36:00Z   7.372
+2015-08-18T00:42:00Z   7.234
+2015-08-18T00:48:00Z   7.11
+2015-08-18T00:54:00Z   6.982
+```
+
+##### Example 1: Group query results into 18 minute intervals and shift the preset time boundaries forward
+<br>
+Calculate the [average](/influxdb/v1.0/query_language/functions/#mean) of `water_level`, grouping results into 18 minute
+time intervals, and offsetting the preset time boundaries by 6 minutes:
+
+```
+> SELECT MEAN("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time <= '2015-08-18T00:54:00Z' GROUP BY time(18m,6m)
+name: h2o_feet
+--------------
+time                   mean
+2015-08-18T00:06:00Z   7.884666666666667
+2015-08-18T00:24:00Z   7.502333333333333
+2015-08-18T00:42:00Z   7.108666666666667
+```
+
+The offset interval shifts InfluxDB's preset time boundaries forward by six
+minutes. The same query without the `offset_interval` returns different
+results:
+
+```
+> SELECT MEAN("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time <= '2015-08-18T00:54:00Z' GROUP BY time(18m)
+name: h2o_feet
+--------------
+time                   mean
+2015-08-18T00:00:00Z   7.946
+2015-08-18T00:18:00Z   7.6323333333333325
+2015-08-18T00:36:00Z   7.238666666666667
+2015-08-18T00:54:00Z   6.982
+```
+
+The time boundaries and returned timestamps for the query **without** the
+`offset_interval` adhere to InfluxDB's preset time boundaries:
+
+| Time Interval Number | Boundary Time Range |  Interval Time Range | Points Included | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| 1  | `time >= 2015-08-18T00:00:00Z AND time < 2015-08-18T00:18:00Z` | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:18:00Z` | `8.005`,`7.887` | `2015-08-18T00:00:00Z` |
+| 2  | `time >= 2015-08-18T00:18:00Z AND time < 2015-08-18T00:36:00Z` | <--- same | `7.762`,`7.635`,`7.5` | `2015-08-18T00:18:00Z` |
+| 3  | `time >= 2015-08-18T00:36:00Z AND time < 2015-08-18T00:54:00Z` | <--- same | `7.372`,`7.234`,`7.11` | `2015-08-18T00:36:00Z` |
+| 4  | `time >= 2015-08-18T00:54:00Z AND time < 2015-08-18T01:12:00Z` | `time = 2015-08-18T00:54:00Z` | `6.982` | `2015-08-18T00:54:00Z` |
+
+The first preset 18-minute time boundary begins at `00:00` and ends just before
+`00:18`.
+Two raw points (`8.005` and `7.887`) fall both within the first interval's time range and in that
+first time boundary.
+Note that while the returned timestamp occurs before the start of the query's time range,
+the query result excludes data that occur before the query's time range.
+
+The second preset 18-minute time boundary begins at `00:18` and ends just before
+`00:36`.
+Three raw points (`7.762` and `7.635` and `7.5`) fall both within the second interval's time range and in that
+second time boundary. In this case, the boundary time range and the interval's time range are the same.
+
+The fourth preset 18-minute time boundary begins at `00:54` and ends just before
+`1:12:00`.
+One raw point (`6.982`) falls both within the fourth interval's time range and in that
+fourth time boundary.
+
+The time boundaries and returned timestamps for the query **with** the
+`offset_interval` adhere to InfluxDB's preset time boundaries and the six-minute
+shift forward:
+
+| Time Interval Number | Boundary Time Range | Interval Time Range | Points Includes | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | ------------- |
+| 1  | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:24:00Z` | <--- same | `8.005`,`7.887`,`7.762` | `2015-08-18T00:06:00Z` |
+| 2  | `time >= 2015-08-18T00:24:00Z AND time < 2015-08-18T00:42:00Z` | <--- same | `7.635`,`7.5`,`7.372` | `2015-08-18T00:24:00Z` |
+| 3  | `time >= 2015-08-18T00:42:00Z AND time < 2015-08-18T01:00:00Z` | <--- same | `7.234`,`7.11`,`6.982` | `2015-08-18T00:42:00Z` |
+
+The six-minute offset interval shifts forward the preset boundary's time range
+such that the preset boundary time range and the interval time range are the
+same.
+
+With the offset, each interval performs the calculation on three points, and
+the timestamp returned matches both the start of the boundary time range and the
+start of the interval time range.
+
+##### Example 2: Group query results into 12 minute intervals and shift the preset time boundaries back
+<br>
+Calculate the [average](/influxdb/v1.0/query_language/functions/#mean) of `water_level`, grouping results into 18 minute
+time intervals, and offsetting the preset time boundaries by -12 minutes:
+
+```
+> SELECT MEAN("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time <= '2015-08-18T00:54:00Z' GROUP BY time(18m,-12m)
+name: h2o_feet
+--------------
+time                   mean
+2015-08-18T00:06:00Z   7.884666666666667
+2015-08-18T00:24:00Z   7.502333333333333
+2015-08-18T00:42:00Z   7.108666666666667
+```
+
+The offset interval shifts InfluxDB's preset time boundaries back by 12
+minutes. The same query without the `offset_interval` returns different
+results:
+
+```
+> SELECT MEAN("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time <= '2015-08-18T00:54:00Z' GROUP BY time(18m)
+name: h2o_feet
+--------------
+time                   mean
+2015-08-18T00:00:00Z   7.946
+2015-08-18T00:18:00Z   7.6323333333333325
+2015-08-18T00:36:00Z   7.238666666666667
+2015-08-18T00:54:00Z   6.982
+```
+
+The time boundaries and returned timestamps for the query **without** the
+`offset_interval` adhere to InfluxDB's preset time boundaries:
+
+| Time Interval Number | Boundary Time Range |  Interval Time Range | Points Included | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| 1  | `time >= 2015-08-18T00:00:00Z AND time < 2015-08-18T00:18:00Z` | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:18:00Z` | `8.005`,`7.887` | `2015-08-18T00:00:00Z` |
+| 2  | `time >= 2015-08-18T00:18:00Z AND time < 2015-08-18T00:36:00Z` | <--- same | `7.762`,`7.635`,`7.5` | `2015-08-18T00:18:00Z` |
+| 3  | `time >= 2015-08-18T00:36:00Z AND time < 2015-08-18T00:54:00Z` | <--- same | `7.372`,`7.234`,`7.11` | `2015-08-18T00:36:00Z` |
+| 4  | `time >= 2015-08-18T00:54:00Z AND time < 2015-08-18T01:12:00Z` | `time = 2015-08-18T00:54:00Z` | `6.982` | `2015-08-18T00:54:00Z` |
+
+The first preset 18-minute time boundary begins at `00:00` and ends just before
+`00:18`.
+Two raw points (`8.005` and `7.887`) fall both within the first interval's time range and in that
+first time boundary.
+Note that while the returned timestamp occurs before the start of the query's time range,
+the query result excludes data that occur before the query's time range.
+
+The second preset 18-minute time boundary begins at `00:18` and ends just before
+`00:36`.
+Three raw points (`7.762` and `7.635` and `7.5`) fall both within the second interval's time range and in that
+second time boundary. In this case, the boundary time range and the interval's time range are the same.
+
+The fourth preset 18-minute time boundary begins at `00:54` and ends just before
+`1:12:00`.
+One raw point (`6.982`) falls both within the fourth interval's time range and in that
+fourth time boundary.
+
+The time boundaries and returned timestamps for the query **with** the
+`offset_interval` adhere to InfluxDB's preset time boundaries and the -12-minute
+shift forward:
+
+| Time Interval Number | Boundary Time Range | Query Time Range | Points Includes | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | ------------- |
+| 1  | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:24:00Z` | <--- same | `8.005`,`7.887`,`7.762` | `2015-08-18T00:06:00Z` |
+| 2  | `time >= 2015-08-18T00:24:00Z AND time < 2015-08-18T00:42:00Z` | <--- same | `7.635`,`7.5`,`7.372` | `2015-08-18T00:24:00Z` |
+| 3  | `time >= 2015-08-18T00:42:00Z AND time < 2015-08-18T01:00:00Z` | <--- same | `7.234`,`7.11`,`6.982` | `2015-08-18T00:42:00Z` |
+
+The negative six-minute offset interval shifts back the preset boundary's time range
+such that the preset boundary time range and the interval time range are the
+same.
+
+With the offset, each interval performs the calculation on three points, and
+the timestamp returned matches both the start of the boundary time range and the
+start of the interval time range.
+
+##### Example 3: Group query results into 12 minute intervals and shift the preset time boundaries forward
+<br>
+This example is a continuation of the scenario outlined in [Common Issues with Basic Syntax](#common-issues-with-basic-syntax).
 
 [`COUNT()`](/influxdb/v1.0/query_language/functions/#count) the number of
-`water_level` points between August 19, 2015 at midnight and August 27 at 5:00pm
-at three day intervals, and offset
-the time boundary by -2 days:
-```sql
-> SELECT COUNT("water_level") FROM "h2o_feet" WHERE time >= '2015-08-19T00:00:00Z' AND time <= '2015-08-27T17:00:00Z' AND "location"='coyote_creek' GROUP BY time(3d,-2d)
-```
+`water_level`, grouping results into 12-minute time intervals, and offsetting the
+preset time boundaries by six minutes:
 
-CLI response:
 ```
+> SELECT COUNT("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time < '2015-08-18T00:18:00Z' GROUP BY time(12m,6m)
+
 name: h2o_feet
 --------------
-time			               count
-2015-08-19T00:00:00Z	 720
-2015-08-22T00:00:00Z	 720
-2015-08-25T00:00:00Z	 651
+time                   count
+2015-08-18T00:06:00Z   2
 ```
 
-The  `-2d` offset interval alters the default three day time interval boundaries  
-from:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to:
+The offset interval shifts InfluxDB's preset time boundaries forward by six
+minutes.
+The same query without the `offset_interval` returns different results:
+
 ```
-August 18 - August 20         August 16 - August 18
-August 21 - August 23         August 19 - August 21
-August 24 - August 26         August 22 - August 24
-August 27 - August 29         August 25 - August 27
-```
-InfluxDB does not return results for the first time interval
-(August 16 - August 18), because it is completely outside the time range in the
-query's `WHERE` clause.
+> SELECT COUNT("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-08-18T00:06:00Z' AND time < '2015-08-18T00:18:00Z' GROUP BY time(12m)
 
-## GROUP BY tag values AND a time interval
-
-Separate multiple `GROUP BY` arguments with a comma.
-
-Calculate the average `water_level` for the different tag values of `location` in the last two weeks at 6 hour intervals:
-```sql
-> SELECT MEAN("water_level") FROM "h2o_feet" WHERE time > now() - 2w GROUP BY "location",time(6h)
-```
-
-## The `GROUP BY` clause and `fill()`
-By default, a `GROUP BY` interval with no data has `null` as its value in the output column.
-Use `fill()` to change the value reported for intervals that have no data.
-`fill()` options include:
-
-* Any numerical value
-* `null` - sets `null` as the value for intervals with no data
-* `previous` - copies the value from the previous interval for intervals with no data
-* `none` - skips intervals with no data to report
-
-> **Note:**
-`fill()` must go at the end of the `GROUP BY` clause if you're `GROUP(ing) BY` several things (for example, both tags and a time interval).
-
-Follow the ✨ in the examples below to see what `fill()` can do.
-
-**GROUP BY without fill()**
-```sql
-> SELECT MEAN("water_level") FROM "h2o_feet" WHERE time >= '2015-08-18' AND time < '2015-09-24' GROUP BY time(10d)
-```
-CLI response:
-```bash
 name: h2o_feet
 --------------
-time			                 mean
-2015-08-13T00:00:00Z	   4.306212083333326
-2015-08-23T00:00:00Z	   4.32855
-2015-09-02T00:00:00Z	   4.446952867570385
-2015-09-12T00:00:00Z	   4.701986209010121
-✨2015-09-22T00:00:00Z
+time                   mean
+2015-08-18T00:00:00Z   1
+2015-08-18T00:12:00Z   1
 ```
-**GROUP BY with fill()**  
-Use `fill()` with `-100`:  
-```sql
-> SELECT MEAN("water_level") FROM h2o_feet WHERE time >= '2015-08-18' AND time < '2015-09-24' GROUP BY time(10d) fill(-100)
+
+The time boundaries and returned timestamps for the query **without** the
+`offset_interval` adhere to InfluxDB's preset time boundaries:
+
+| Time Interval Number | Boundary Time Range | Query Time Range | Points Included | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| 1  | `time >= 2015-08-18T00:00:00Z AND time < 2015-08-18T00:12:00Z` | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:12:00Z` | `8.005` | `2015-08-18T00:00:00Z` |
+| 2  | `time >= 2015-08-12T00:12:00Z AND time < 2015-08-18T00:24:00Z` | `time >= 2015-08-12T00:12:00Z AND time < 2015-08-18T00:18:00Z`  | `7.887` | `2015-08-18T00:12:00Z` |
+
+The first preset 12-minute time boundary begins at `00:00` and ends just before
+`00:12`.
+Only one raw point (`8.005`) falls both within the query's first time interval and in that
+first time boundary.
+Note that while the returned timestamp occurs before the start of the query's time range,
+the query result excludes data that occur before the query's time range.
+
+The second preset 12-minute time boundary begins at `00:12` and ends just before
+`00:24`.
+Only one raw point (`7.887`) falls both within the query's second time interval and in that
+second time boundary.
+
+The time boundaries and returned timestamps for the query **with** the
+`offset_interval` adhere to InfluxDB's preset time boundaries and the six-minute
+shift forward:
+
+| Time Interval Number | Boundary Time Range | Query Time Range | Points Included | Returned Timestamp |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| 1  | `time >= 2015-08-18T00:06:00Z AND time < 2015-08-18T00:24:00Z` | <--- same | `8.005`,`7.887` | `2015-08-18T00:06:00Z` |
+
+The six-minute offset interval shifts forward the preset boundary's time range
+such that the preset boundary time range and the interval time range are the
+same.
+With the offset, the query returns a single result, and the timestamp returned
+matches both the start of the boundary time range and the start of the interval
+time range.
+
+## `GROUP BY` time intervals and `fill()`
+
+`fill()` changes the value reported for time intervals that have no data.
+
+#### Syntax
+
 ```
-CLI response:  
-```bash
+SELECT <function>(<field_key>)
+FROM <measurement_name>
+WHERE <time_range>
+GROUP BY time(time_interval,[<offset_interval]),[tag_key] [fill(<fill_option>)]
+```
+
+#### Description of Syntax
+
+By default, a `GROUP BY time()` interval with no data reports `null` as its
+value in the output column.
+`fill()` changes the value reported for time intervals that have no data.
+Note that `fill()` must go at the end of the `GROUP BY` clause if you're
+`GROUP(ing) BY` several things (for example, both tags and a time interval).
+
+##### fill_option
+<br>
+
+Any numerical value
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+Reports any numerical value for time intervals with no data.
+
+`none`
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+Reports no timestamp and no value for time intervals with no data.
+
+`null`
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+Reports `null` for time intervals with no data. This is the same as the default behavior.
+
+`previous`
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;
+Reports the value from the previous time interval for time intervals with no data.
+
+#### Examples
+
+{{< vertical-tabs >}}
+{{% tabs %}}
+[Example 1: fill(100)](#)
+[Example 2: fill(none)](#)
+[Example 3: fill(null)](#)
+[Example 4: fill(previous)](#)
+{{% /tabs %}}
+{{< tab-content-container >}}
+
+{{% tab-content %}}
+
+Without `fill(100)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m)
+
 name: h2o_feet
 --------------
-time			                  mean
-2015-08-13T00:00:00Z	    4.306212083333326
-2015-08-23T00:00:00Z	    4.32855
-2015-09-02T00:00:00Z	    4.446952867570385
-2015-09-12T00:00:00Z	    4.701986209010121
-✨2015-09-22T00:00:00Z	  -100
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z   
 ```
-Use `fill()` with `none`:
-```sql
-> SELECT MEAN("water_level") FROM "h2o_feet" WHERE time >= '2015-08-18' AND time < '2015-09-24' GROUP BY time(10d) fill(none)
+
+With `fill(100)`:
 ```
-CLI response:  
-```bash
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m) fill(100)
+
 name: h2o_feet
-time			                 mean
-2015-08-13T00:00:00Z	   4.306212083333326
-2015-08-23T00:00:00Z	   4.32855
-2015-09-02T00:00:00Z	   4.446952867570385
-2015-09-12T00:00:00Z	   4.701986209010121
-✨
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z   100
 ```
 
-### Common issues with `fill()`
+`fill(100)` changes the value reported for the time interval with no data to `100`.
 
-* Currently, queries ignore `fill()` if no data fall within the query's time range.
+{{% /tab-content %}}
+
+{{% tab-content %}}
+
+Without `fill(none)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z
+```
+
+With `fill(none)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m) fill(none)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+```
+
+`fill(none)` reports no value and no timestamp for the time interval with no data.
+
+{{% /tab-content %}}
+
+{{% tab-content %}}
+
+Without `fill(null)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z
+```
+
+With `fill(null)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m) fill(null)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z   
+```
+
+`fill(null)` reports `null` as the value for the time interval with no data.
+That result matches the result of the query without `fill(null)`.
+
+{{% /tab-content %}}
+
+{{% tab-content %}}
+
+Without `fill(previous)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z
+```
+
+With `fill(previous)`:
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE "location"='coyote_creek' AND time >= '2015-09-18T16:00:00Z' AND time <= '2015-09-18T16:42:00Z' GROUP BY time(12m) fill(previous)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:00:00Z   3.599
+2015-09-18T16:12:00Z   3.402
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z   3.235
+```
+
+`fill(previous)` changes the value reported for the time interval with no data to `3.235`,
+the value from the previous time interval.
+
+{{% /tab-content %}}
+
+{{< /tab-content-container >}}
+{{< /vertical-tabs >}}
+
+#### Common issues with `fill()`
+
+##### Issue 1: `fill()` when no data fall within the query's time range
+<br>
+Currently, queries ignore `fill()` if no data fall within the query's time range.
 This is the expected behavior. An open
 [feature request](https://github.com/influxdata/influxdb/issues/6967) on GitHub
 proposes that `fill()` should force a return of values even if the query's time
 range covers no data.
-* `fill(previous)` doesn’t fill the result for a time bucket if the previous value is outside the query’s time range. See [Frequently Asked Questions](/influxdb/v1.0/troubleshooting/frequently-asked-questions/#why-does-fill-previous-return-empty-results) for more information.
+
+**Example**
+
+The following query returns no data because `water_level` has no points within
+the query's time range.
+Note that `fill(800)` has no effect on the query results.
+```
+> SELECT MEAN("water_level") FROM "h2o_feet" WHERE "location" = 'coyote_creek' AND time >= '2015-09-18T22:00:00Z' AND time <= '2015-09-18T22:18:00Z' GROUP BY time(12m) fill(800)
+>
+```
+
+##### Issue 2: `fill(previous)` when the previous result falls outside the query's time range
+<br>
+`fill(previous)` doesn’t fill the result for a time interval if the previous
+value is outside the query’s time range.
+
+**Example**
+
+The following query covers the time range between `2015-09-18T16:24:00Z` and `2015-09-18T16:54:00Z`.
+Note that `fill(previous)` fills the result for `2015-09-18T16:36:00Z` with the
+result from `2015-09-18T16:24:00Z`.
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE location = 'coyote_creek' AND time >= '2015-09-18T16:24:00Z' AND time <= '2015-09-18T16:54:00Z' GROUP BY time(12m) fill(previous)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:24:00Z   3.235
+2015-09-18T16:36:00Z   3.235
+2015-09-18T16:48:00Z   4
+```
+
+The next query shortens the time range in the previous query.
+It now covers the time between `2015-09-18T16:36:00Z` and `2015-09-18T16:54:00Z`.
+Note that `fill(previous)` does not fill the result for `2015-09-18T16:36:00Z` with the
+result from `2015-09-18T16:24:00Z`; the result for `2015-09-18T16:24:00Z` is outside the query's
+shorter time range.
+
+```
+> SELECT MAX("water_level") FROM "h2o_feet" WHERE location = 'coyote_creek' AND time >= '2015-09-18T16:36:00Z' AND time <= '2015-09-18T16:54:00Z' GROUP BY time(12m) fill(previous)
+
+name: h2o_feet
+--------------
+time                   max
+2015-09-18T16:36:00Z
+2015-09-18T16:48:00Z   4
+```
 
 <br>
 <br>
